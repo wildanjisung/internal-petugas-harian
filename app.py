@@ -1,8 +1,18 @@
+
 import pandas as pd
 import streamlit as st
 from streamlit_calendar import calendar
 
 st.set_page_config(layout="wide")
+
+# Compact CSS
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 0.7rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
 EXCLUDED_PETUGAS = ["Cthbot"]
 
@@ -53,7 +63,7 @@ def build_global_events(df, all_petugas):
             color = "#e74c3c"
 
         events.append({
-            "title": f"{row['jumlah']}/{total_petugas} petugas",
+            "title": f"{row['jumlah']}/{total_petugas}",
             "start": str(row['tanggal']),
             "color": color
         })
@@ -68,7 +78,7 @@ def build_individual_events(df, petugas):
 
     events = [
         {
-            "title": "Input ✔",
+            "title": "✔",
             "start": str(date),
             "color": "#2ecc71"
         }
@@ -78,20 +88,25 @@ def build_individual_events(df, petugas):
     return events
 
 
-# ⭐ UPDATED RANKING: based on number of days active
 def ranking_petugas(df):
     rank = (
         df.groupby('Terakhir Diperbarui oleh')['tanggal']
-        .nunique()  # <-- count unique days instead of rows
-        .reset_index(name='Jumlah Hari Input')
-        .sort_values(by='Jumlah Hari Input', ascending=False)
+        .nunique()
+        .reset_index(name='Hari Aktif')
+        .sort_values(by='Hari Aktif', ascending=False)
     )
     return rank
 
 
-st.title("📊 Dashboard Monitoring Petugas")
+# SIDEBAR IMPORT
+with st.sidebar:
+    st.header("📂 Data Source")
+    uploaded_file = st.file_uploader("Import Excel", type=["xlsx"])
+    st.caption("""Upload hanya sekali.
+Dashboard akan fokus ke data.""")
 
-uploaded_file = st.file_uploader("Upload file Excel", type=["xlsx"])
+
+st.title("📊 Monitoring Petugas")
 
 if uploaded_file:
 
@@ -101,90 +116,85 @@ if uploaded_file:
     events, total_petugas = build_global_events(df, all_petugas)
 
     today = pd.Timestamp.today().date()
-    today_df = df[df['tanggal'] == today]
-    today_count = today_df['Terakhir Diperbarui oleh'].nunique()
+    today_count = df[df['tanggal'] == today]['Terakhir Diperbarui oleh'].nunique()
 
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("Total Petugas", total_petugas)
-    col2.metric("Sudah Input Hari Ini", today_count)
+    # KPI
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total", total_petugas)
+    c2.metric("Hari Ini", today_count)
     compliance = (today_count/total_petugas*100) if total_petugas else 0
-    col3.metric("Compliance", f"{compliance:.1f}%")
+    c3.metric("Compliance", f"{compliance:.0f}%")
 
-    st.subheader("📅 Kalender Global (Klik tanggal)")
-
-    selected = calendar(
-        events=events,
-        options={"initialView": "dayGridMonth"},
-        key="global_calendar"
+    view = st.segmented_control(
+        "",
+        ["Global", "Individu", "Ranking"],
+        default="Global"
     )
 
-    if selected and "dateClick" in selected:
-        clicked_date = pd.to_datetime(selected["dateClick"]["date"]).date()
+    magnify = st.toggle("🔎 Magnifier", value=False)
+    calendar_height = 520 if not magnify else 850
 
-        st.markdown(f"### 📌 Detail {clicked_date}")
+    if view == "Global":
 
-        df_day = df[df['tanggal'] == clicked_date]
-        sudah = set(df_day['Terakhir Diperbarui oleh'])
-        belum = set(all_petugas) - sudah
+        calendar(
+            events=events,
+            options={
+                "initialView": "dayGridMonth",
+                "height": calendar_height
+            },
+            key="global_calendar"
+        )
 
-        colA, colB = st.columns(2)
+    elif view == "Individu":
 
-        with colA:
-            st.success("Sudah Input")
-            st.write(sorted(sudah) if sudah else "Tidak ada.")
+        petugas = st.radio(
+            "",
+            all_petugas,
+            horizontal=True
+        )
 
-        with colB:
-            st.error("Belum Input")
-            st.write(sorted(belum) if belum else "Semua sudah input 🎉")
+        individual_events = build_individual_events(df, petugas)
 
-    st.divider()
+        calendar(
+            events=individual_events,
+            options={
+                "initialView": "dayGridMonth",
+                "height": calendar_height
+            },
+            key="individual_calendar"
+        )
 
-    st.subheader("👤 Kalender Individu")
+    else:
 
-    selected_petugas = st.selectbox("Pilih Petugas", all_petugas)
+        colA, colB, colC = st.columns(3)
 
-    individual_events = build_individual_events(df, selected_petugas)
+        selected_year = colA.selectbox(
+            "Tahun",
+            sorted(df['tahun'].unique()),
+            index=len(sorted(df['tahun'].unique()))-1
+        )
 
-    calendar(
-        events=individual_events,
-        options={"initialView": "dayGridMonth"},
-        key="individual_calendar"
-    )
+        df_filtered = df[df['tahun'] == selected_year]
 
-    st.divider()
+        selected_month = colB.selectbox(
+            "Bulan",
+            ["Semua"] + list(range(1,13))
+        )
 
-    st.subheader("🏆 Ranking Petugas (Berdasarkan Hari Aktif)")
+        if selected_month != "Semua":
+            df_filtered = df_filtered[df_filtered['bulan'] == selected_month]
 
-    colA, colB, colC = st.columns(3)
+        selected_week = colC.selectbox(
+            "Minggu",
+            ["Semua"] + sorted(df_filtered['minggu'].unique())
+        )
 
-    selected_year = colA.selectbox(
-        "Filter Tahun",
-        options=sorted(df['tahun'].unique()),
-        index=len(sorted(df['tahun'].unique()))-1
-    )
+        if selected_week != "Semua":
+            df_filtered = df_filtered[df_filtered['minggu'] == selected_week]
 
-    df_filtered = df[df['tahun'] == selected_year]
+        rank_df = ranking_petugas(df_filtered)
 
-    selected_month = colB.selectbox(
-        "Filter Bulan",
-        options=["Semua"] + list(range(1,13))
-    )
-
-    if selected_month != "Semua":
-        df_filtered = df_filtered[df_filtered['bulan'] == selected_month]
-
-    selected_week = colC.selectbox(
-        "Filter Minggu",
-        options=["Semua"] + sorted(df_filtered['minggu'].unique())
-    )
-
-    if selected_week != "Semua":
-        df_filtered = df_filtered[df_filtered['minggu'] == selected_week]
-
-    rank_df = ranking_petugas(df_filtered)
-
-    st.dataframe(rank_df, use_container_width=True)
+        st.dataframe(rank_df, use_container_width=True, height=520)
 
 else:
-    st.info("Upload file Excel untuk mulai dashboard.")
+    st.info("⬅️ Upload Excel dari sidebar untuk mulai dashboard.")
