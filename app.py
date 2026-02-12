@@ -4,12 +4,18 @@ from streamlit_calendar import calendar
 
 st.set_page_config(layout="wide")
 
+EXCLUDED_PETUGAS = ["Cthbot"]
+
+
 @st.cache_data
 def load_data(file):
     df = pd.read_excel(file)
 
     df['Dibuat pada'] = pd.to_datetime(df['Dibuat pada'])
     df['tanggal'] = df['Dibuat pada'].dt.date
+    df['tahun'] = df['Dibuat pada'].dt.year
+    df['bulan'] = df['Dibuat pada'].dt.month
+    df['minggu'] = df['Dibuat pada'].dt.isocalendar().week
 
     df['Terakhir Diperbarui oleh'] = (
         df['Terakhir Diperbarui oleh']
@@ -17,6 +23,8 @@ def load_data(file):
         .str.strip()
         .str.title()
     )
+
+    df = df[~df['Terakhir Diperbarui oleh'].isin(EXCLUDED_PETUGAS)]
 
     return df
 
@@ -70,12 +78,13 @@ def build_individual_events(df, petugas):
     return events
 
 
+# ⭐ UPDATED RANKING: based on number of days active
 def ranking_petugas(df):
     rank = (
-        df.groupby('Terakhir Diperbarui oleh')
-        .size()
-        .reset_index(name='Jumlah Input')
-        .sort_values(by='Jumlah Input', ascending=False)
+        df.groupby('Terakhir Diperbarui oleh')['tanggal']
+        .nunique()  # <-- count unique days instead of rows
+        .reset_index(name='Jumlah Hari Input')
+        .sort_values(by='Jumlah Hari Input', ascending=False)
     )
     return rank
 
@@ -123,17 +132,11 @@ if uploaded_file:
 
         with colA:
             st.success("Sudah Input")
-            if sudah:
-                st.write(sorted(sudah))
-            else:
-                st.write("Tidak ada.")
+            st.write(sorted(sudah) if sudah else "Tidak ada.")
 
         with colB:
             st.error("Belum Input")
-            if belum:
-                st.write(sorted(belum))
-            else:
-                st.write("Semua sudah input 🎉")
+            st.write(sorted(belum) if belum else "Semua sudah input 🎉")
 
     st.divider()
 
@@ -151,9 +154,36 @@ if uploaded_file:
 
     st.divider()
 
-    st.subheader("🏆 Ranking Petugas")
+    st.subheader("🏆 Ranking Petugas (Berdasarkan Hari Aktif)")
 
-    rank_df = ranking_petugas(df)
+    colA, colB, colC = st.columns(3)
+
+    selected_year = colA.selectbox(
+        "Filter Tahun",
+        options=sorted(df['tahun'].unique()),
+        index=len(sorted(df['tahun'].unique()))-1
+    )
+
+    df_filtered = df[df['tahun'] == selected_year]
+
+    selected_month = colB.selectbox(
+        "Filter Bulan",
+        options=["Semua"] + list(range(1,13))
+    )
+
+    if selected_month != "Semua":
+        df_filtered = df_filtered[df_filtered['bulan'] == selected_month]
+
+    selected_week = colC.selectbox(
+        "Filter Minggu",
+        options=["Semua"] + sorted(df_filtered['minggu'].unique())
+    )
+
+    if selected_week != "Semua":
+        df_filtered = df_filtered[df_filtered['minggu'] == selected_week]
+
+    rank_df = ranking_petugas(df_filtered)
+
     st.dataframe(rank_df, use_container_width=True)
 
 else:
