@@ -14,7 +14,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-EXCLUDED_PETUGAS = ["Cthbot"]
+EXCLUDED_PETUGAS = ["Cthbot", "Caritahub Superadmin"]
 
 
 @st.cache_data
